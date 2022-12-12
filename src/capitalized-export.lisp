@@ -4,10 +4,10 @@
 
 (in-package :capitalized-export)
 
-(defvar *debug* nil)
+(defvar *debug* t)
 
 ;; readtable-case :invert
-
+;;
 ;; User types     Symbol
 ;; Zebra       -> Zebra
 ;; ZEBRA       -> zebra
@@ -15,13 +15,23 @@
 ;; a           -> A
 ;; A           -> a
 
-(defun capitalized-according-to-invert-p (string)
+;; Want to export "Foo", "F" and "*Foo*".
+(defun matches-export-pattern-p (string)
   (or (and (= 1 (length string))
            (lower-case-p (aref string 0)))
       (and (< 1 (length string))
-           (upper-case-p (aref string 0))
-           (loop :for k :from 1 :below (length string)
-                 :always (lower-case-p (aref string k))))))
+           (loop :with state = :looking-for-alpha-char
+                 :for c :across string
+                 :when (alpha-char-p c)
+                   :do (case state
+                         (:looking-for-alpha-char
+                          (if (upper-case-p c)
+                              (setf state :only-lower-case)
+                              (return nil)))
+                         (:only-lower-case
+                          (when (upper-case-p c)
+                            (return nil))))
+                 :finally (return (eq :only-lower-case state))))))
 
 (defun escape-object (x)
   (vector 'escape x))
@@ -51,7 +61,7 @@
   (let ((seen-table (make-hash-table :test 'eq)) ; original cons -> marker
         (value-table (make-hash-table :test 'eq))) ; marker -> walked cons
     (labels ((walk (tr)
-               (typecase tr
+               (etypecase tr
                  (cons
                   ;; If tr has been seen before, return the
                   ;; corresponding marker.
@@ -65,7 +75,7 @@
                                          (walk (cdr tr))))))))
                  (atom (funcall fn tr))))
              (replace-markers (tr)
-               (typecase tr
+               (etypecase tr
                  (cons
                   (let ((car (gethash (car tr) value-table))
                         (cdr (gethash (cdr tr) value-table)))
@@ -80,6 +90,17 @@
         (replace-markers new)
         new))))
 
+(defun resolve-capitalized-symbol (symbol)
+  (unless (eq (symbol-package symbol) *package*)
+    (error "~
+CAPITALIZED-EXPORT: Export functionality using capitalized symbols
+with a different home package than the current one is not implemented.
+Please export in the usual way instead.
+
+Tried to export ~S.
+"  symbol))
+  (intern (string-upcase symbol) *package*))
+
 (defun make-capitalized-export-readtable ()
   (buffering-readtable:make-buffering-readtable
    :inner-readtable (make-inverted-readtable)
@@ -91,10 +112,10 @@
                 (cond ((escaped-object-p object)
                        (escaped-object-value object))
                       ((and (symbolp object)
-                            (capitalized-according-to-invert-p
+                            (matches-export-pattern-p
                              (symbol-name object)))
-                       (let ((upcased-symbol (intern (string-upcase object)
-                                                     *package*)))
+                       (let ((upcased-symbol
+                               (resolve-capitalized-symbol object)))
                          (push upcased-symbol exports)
                          upcased-symbol))
                       (t object))))
@@ -105,14 +126,12 @@
          (format t "Before:~%")
          (with-standard-io-syntax
            (let ((*print-pretty* t)
-                 (*print-circle* t)
-                 (*package* (find-package :capitalized-export)))
+                 (*print-circle* t))
              (print forms)))
          (terpri)
          (format t "After:~%")
          (with-standard-io-syntax
            (let ((*print-pretty* t)
-                 (*print-circle* t)
-                 (*package* (find-package :capitalized-export)))
+                 (*print-circle* t))
              (print translated-forms))))
        translated-forms))))

@@ -21,4 +21,7 @@
 'A ; Export
 'b ; Don't export
 
-(defparameter *circular* '#1=(1 2 3 . #1#))
+;; Should error:
+;; (defun cl-user::Foo () 1)
+
+(defparameter *Circular* '#1=(1 2 3 . #1#))
