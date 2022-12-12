@@ -4,7 +4,7 @@
 
 (in-package :capitalized-export)
 
-(defvar *debug* t)
+(defvar *debug* nil)
 
 ;; readtable-case :invert
 ;;
