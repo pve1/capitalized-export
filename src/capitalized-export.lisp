@@ -121,17 +121,14 @@ Tried to export ~S.
                       (t object))))
             (translated-forms
                (append (map-tree-leaves collect-capitalized forms)
-                       `((export ',exports)))))
+                       `((export ',(reverse exports))))))
        (when *debug*
-         (format t "Before:~%")
-         (with-standard-io-syntax
-           (let ((*print-pretty* t)
-                 (*print-circle* t))
-             (print forms)))
-         (terpri)
-         (format t "After:~%")
-         (with-standard-io-syntax
-           (let ((*print-pretty* t)
-                 (*print-circle* t))
-             (print translated-forms))))
+         (let ((*print-pretty* t)
+               (*print-circle* t)
+               (*readtable* (copy-readtable nil)))
+           (format t "Before:~%")
+           (print forms)
+           (terpri)
+           (format t "After:~%")
+           (print translated-forms)))
        translated-forms))))

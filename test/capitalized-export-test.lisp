@@ -21,7 +21,12 @@
 'A ; Export
 'b ; Don't export
 
-;; Should error:
+;; Error:
 ;; (defun cl-user::Foo () 1)
 
 (defparameter *Circular* '#1=(1 2 3 . #1#))
+
+;; This form will be returned by CL:READ as if it had been typed at
+;; the bottom of the file:
+;;
+;; (EXPORT '(PERSON NAME AGE A *CIRCULAR*))
