@@ -1,9 +1,9 @@
 ;;;; capitalized-export.asd
 
 (asdf:defsystem #:capitalized-export
-  :description "Describe capitalized-export here"
+  :description "Capitalized-export provides a readtable that lets users export accessible symbols by capitalizing them."
   :author "Peter von Etter"
-  :license  "LLGPL"
+  :license  "LGPL-3.0"
   :version "0.0.1"
   :components ((:file "src/capitalized-export"))
   :depends-on (#:buffering-readtable))
