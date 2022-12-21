@@ -61,7 +61,7 @@
   (let ((seen-table (make-hash-table :test 'eq)) ; original cons -> marker
         (value-table (make-hash-table :test 'eq))) ; marker -> walked cons
     (labels ((walk (tr)
-               (etypecase tr
+               (typecase tr
                  (cons
                   ;; If tr has been seen before, return the
                   ;; corresponding marker.
@@ -75,7 +75,7 @@
                                          (walk (cdr tr))))))))
                  (atom (funcall fn tr))))
              (replace-markers (tr)
-               (etypecase tr
+               (typecase tr
                  (cons
                   (let ((car (gethash (car tr) value-table))
                         (cdr (gethash (cdr tr) value-table)))
