@@ -91,6 +91,7 @@
         new))))
 
 (defun resolve-capitalized-symbol (symbol)
+  ;; Should be really rare.
   (unless (eq (symbol-package symbol) *package*)
     (error "~
 CAPITALIZED-EXPORT: Export functionality using capitalized symbols
