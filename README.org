@@ -1,8 +1,7 @@
 * Capitalized Export
 
 This library provides a readtable that lets the user export accessible
-symbols by capitalizing them when loading or compiling files. It
-depends on [[https://github.com/pve1/buffering-readtable][buffering-readtable]].
+symbols by capitalizing them when loading or compiling files.
 
 * Example
 #+BEGIN_SRC lisp

@@ -102,34 +102,134 @@ Tried to export ~S.
 "  symbol))
   (intern (string-upcase symbol) *package*))
 
+(defun collect-capitalized-symbols (form)
+  (let* (new-tree
+         (capitalized ())
+         (collect-capitalized
+           (lambda (object)
+             (cond ((escaped-object-p object)
+                    (escaped-object-value object))
+                   ((and (symbolp object)
+                         (matches-export-pattern-p
+                          (symbol-name object)))
+                    (let ((upcased-symbol
+                            (resolve-capitalized-symbol object)))
+                      (push upcased-symbol capitalized)
+                      upcased-symbol))
+                   (t object)))))
+    (setf new-tree (map-tree-leaves collect-capitalized form))
+    (values capitalized
+            new-tree)))
+
+(defun chomp (string)
+  (if (eql #\Newline (alexandria:last-elt string))
+      (subseq string 0 (1- (length string)))
+      string))
+
+(defclass capitalized-export-analyzer ()
+  ((exports :initarg :exports :accessor exports :initform nil)
+   (donep :initarg :donep :accessor donep :initform nil)
+   (readtable :initarg :readtable
+              :accessor analyzer-readtable
+              :initform (make-inverted-readtable))
+   (package :initarg :package :accessor analyzer-package :initform *package*)))
+
+(defmethod done ((a capitalized-export-analyzer))
+  (setf (donep a) t))
+
+(defmethod analyze-file ((a capitalized-export-analyzer) file)
+  (unless (donep a)
+    (prog1 (analyze-string a (alexandria:read-file-into-string file))
+      (done a))))
+
+(defmethod analyze-string ((a capitalized-export-analyzer) string)
+  (when *debug*
+    (format t "; Analyzing string ~S~%" (chomp string)))
+  (with-accessors ((exports exports)
+                   (package analyzer-package)) a
+    (let* ((*readtable* (analyzer-readtable a))
+           (*package* package)
+           (forms (buffering-readtable::read-all-from-string string))
+           (capitalized nil))
+      (dolist (form forms)
+        (setf capitalized (append (collect-capitalized-symbols form)
+                                  capitalized)))
+      (when (and *debug* capitalized)
+        (format t "; Found ~A capitalized symbols.~%" (length capitalized)))
+      (setf exports (append capitalized exports)))))
+
+(defun wrap-readtable-macro-characters (readtable fn)
+  (let ((rt (copy-readtable readtable)))
+    (loop :for i :from 0 :to 255
+          :do (multiple-value-bind (reader-macro-fn nt)
+                  (get-macro-character (code-char i) readtable)
+                (when reader-macro-fn
+                  (set-macro-character (code-char i)
+                                       (lambda (s c)
+                                         (funcall fn s c reader-macro-fn))
+                                       nt
+                                       rt))))
+    rt))
+
+(defvar *toplevel* t)
+
+(setf *debug* t)
+
+;;; Replaces the final newline in a file with an (export ...) form.
 (defun make-capitalized-export-readtable ()
-  (buffering-readtable:make-buffering-readtable
-   :inner-readtable (make-inverted-readtable)
-   :translate-all
-   (lambda (forms)
-     (let* ((exports ())
-            (collect-capitalized
-              (lambda (object)
-                (cond ((escaped-object-p object)
-                       (escaped-object-value object))
-                      ((and (symbolp object)
-                            (matches-export-pattern-p
-                             (symbol-name object)))
-                       (let ((upcased-symbol
-                               (resolve-capitalized-symbol object)))
-                         (push upcased-symbol exports)
-                         upcased-symbol))
-                      (t object))))
-            (translated-forms
-               (append (map-tree-leaves collect-capitalized forms)
-                       `((export ',(reverse exports))))))
-       (when *debug*
-         (let ((*print-pretty* t)
-               (*print-circle* t)
-               (*readtable* (copy-readtable nil)))
-           (format t "Before:~%")
-           (print forms)
-           (terpri)
-           (format t "After:~%")
-           (print translated-forms)))
-       translated-forms))))
+  (let ((analyzer (make-instance 'capitalized-export-analyzer))
+        (done nil)
+        wrapped-rt)
+    (labels ((error-handler (c)
+               ;; On any error, do not attempt to build an export
+               ;; list.
+               (declare (ignore c))
+               (warn "CAPITALIZED-EXPORT: Error encountered while reading. Cannot determine export list.")
+               (setf done t))
+             (generate-exports ()
+               ;; Make an export form (once) based on the collected
+               ;; capitalized symbols.
+               (assert *toplevel*)
+               (when *debug*
+                 (format t "; Exported ~A.~%" (exports analyzer)))
+               (setf done t)
+               `(export ',(exports analyzer)))
+             (newline-reader-macro-fn (s c)
+               (declare (ignore c))
+               ;; Place exports last.
+               (if (or done (listen s))
+                   (values)
+                   (generate-exports))))
+      ;; Wrap the readtable to capture the input using an echo stream, so
+      (setf wrapped-rt (wrap-readtable-macro-characters
+                        *readtable*
+                        (lambda (s c fn)
+                          ;; Echo input from the stream to the analyzer.
+                          (if (and *toplevel* (not done))
+                              (let* ((capture (make-string-output-stream)))
+                                (write-char c capture)
+                                (with-open-stream (echo (make-echo-stream s capture))
+                                  ;; Do not need to consider (values) here.
+                                  (let ((form (handler-bind ((serious-condition #'error-handler))
+                                                (let ((*toplevel* nil))
+                                                  (funcall fn echo c)))))
+                                    (analyze-string analyzer (get-output-stream-string capture))
+                                    ;; Wrap in a progn if FN happened
+                                    ;; to consume the last newline
+                                    ;; (e.g. a ';' comment).  This
+                                    ;; will confuse SLIME's labeling
+                                    ;; of compiler notes, but for a
+                                    ;; comment it doesn't really
+                                    ;; matter.
+                                    (if (not (listen s))
+                                        `(progn
+                                           ,form
+                                           ,(generate-exports))
+                                        form))))
+                              ;; If not done, error handler is active here.
+                              (funcall fn s c)))))
+      (set-macro-character #\Newline
+                           #'newline-reader-macro-fn
+                           nil
+                           wrapped-rt)
+      wrapped-rt)))
