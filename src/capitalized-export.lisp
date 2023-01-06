@@ -44,18 +44,17 @@
 (defun escaped-object-value (x)
   (aref x 1))
 
-(defun make-inverted-readtable ()
-  (let* ((rt (copy-readtable nil))
-         (standard (copy-readtable nil))
+(defun make-inverted-readtable (&optional (inner-readtable *readtable*))
+  (let* ((inverted (copy-readtable inner-readtable))
          (vertical-special-case
            (lambda (s c)
              (assert (eql #\| c))
              (unread-char c s)
-             (let ((*readtable* standard))
+             (let ((*readtable* inner-readtable))
                (escape-object (read s t s t))))))
-    (setf (readtable-case rt) :invert)
-    (set-macro-character #\| vertical-special-case nil rt)
-    rt))
+    (setf (readtable-case inverted) :invert)
+    (set-macro-character #\| vertical-special-case nil inverted)
+    inverted))
 
 (defun map-tree-leaves (fn tree)
   (let ((seen-table (make-hash-table :test 'eq)) ; original cons -> marker
