@@ -6,4 +6,4 @@
   :license  "LGPL-3.0"
   :version "0.0.1"
   :components ((:file "src/capitalized-export"))
-  :depends-on ())
+  :depends-on (#:alexandria))
