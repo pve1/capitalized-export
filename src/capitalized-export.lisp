@@ -235,8 +235,7 @@ Tried to export ~S.
                               (let* ((capture (make-string-output-stream)))
                                 (write-char c capture)
                                 (with-open-stream (echo (make-echo-stream s capture))
-                                  ;; Do not need to consider (values)
-                                  ;; here.  FINISH-OUTPUT seems to be
+                                  ;; FINISH-OUTPUT seems to be
                                   ;; necessary, otherwise SLIME gets
                                   ;; confused when labeling compiler
                                   ;; notes.
