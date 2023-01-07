@@ -1,7 +1,13 @@
 * Capitalized Export
 
 This library provides a readtable that lets the user export accessible
-symbols by capitalizing them when loading or compiling files.
+symbols by capitalizing them when loading or compiling files. Jump to
+definition, describe symbol etc. will still work normally in SLIME.
+
+A fresh readtable is required for each file, so one might want to
+create a suitable convenience macro for setting the current
+readtable. The readtable should be set *after* the the package has
+been set (e.g. with IN-PACKAGE).
 
 * Example
 #+BEGIN_SRC lisp
