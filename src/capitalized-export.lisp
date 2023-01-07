@@ -56,6 +56,7 @@
                             (return nil))))
                  :finally (return (eq :only-lower-case state))))))
 
+;;; This is used to escape |Foo| symbols.
 (defun escape-object (x)
   (vector 'escape x))
 
@@ -143,27 +144,29 @@ Tried to export ~S.
     (values capitalized
             new-tree)))
 
-(defun chomp (string)
-  (if (eql #\Newline (alexandria:last-elt string))
-      (subseq string 0 (1- (length string)))
-      string))
-
 (defclass capitalized-export-analyzer ()
   ((exports :initarg :exports :accessor exports :initform nil)
-   (donep :initarg :donep :accessor donep :initform nil)
    (readtable :initarg :readtable
               :accessor analyzer-readtable
               :initform (make-inverted-readtable))
    (package :initarg :package :accessor analyzer-package :initform *package*)))
 
-(defmethod done ((a capitalized-export-analyzer))
-  (setf (donep a) t))
+(defun chomp (string)
+  (if (eql #\Newline (alexandria:last-elt string))
+      (subseq string 0 (1- (length string)))
+      string))
 
-(defmethod analyze-file ((a capitalized-export-analyzer) file)
-  (unless (donep a)
-    (prog1 (analyze-string a (alexandria:read-file-into-string file))
-      (done a))))
+(defun read-all-from-stream (stream)
+  (loop :for form = (read stream nil stream nil)
+        :until (eq form stream)
+        :collect form))
 
+(defun read-all-from-string (string)
+  (with-input-from-string (string-stream string)
+    (read-all-from-stream string-stream)))
+
+;;; Collect (append) capitalized symbols found in string. Access them
+;;; using the accessor EXPORTS.
 (defmethod analyze-string ((a capitalized-export-analyzer) string)
   (when *debug*
     (format t "; Analyzing string ~S~%" (chomp string)))
@@ -171,7 +174,7 @@ Tried to export ~S.
                    (package analyzer-package)) a
     (let* ((*readtable* (analyzer-readtable a))
            (*package* package)
-           (forms (buffering-readtable::read-all-from-string string))
+           (forms (read-all-from-string string))
            (capitalized nil))
       (dolist (form forms)
         (setf capitalized (append (collect-capitalized-symbols form)
@@ -179,6 +182,9 @@ Tried to export ~S.
       (when (and *debug* capitalized)
         (format t "; Found ~A capitalized symbols.~%" (length capitalized)))
       (setf exports (append capitalized exports)))))
+
+(defmethod analyze-file ((a capitalized-export-analyzer) file)
+  (analyze-string a (alexandria:read-file-into-string file)))
 
 (defun wrap-readtable-macro-characters (readtable fn)
   (let ((rt (copy-readtable readtable)))
@@ -195,12 +201,10 @@ Tried to export ~S.
 
 (defvar *toplevel* t)
 
-(setf *debug* t)
-
 ;;; Replaces the final newline in a file with an (export ...) form.
 (defun make-capitalized-export-readtable ()
   (let ((analyzer (make-instance 'capitalized-export-analyzer))
-        (done nil)
+        (done nil) ; We're done after encountering a newline followed by EOF.
         wrapped-rt)
     (labels ((error-handler (c)
                ;; On any error, do not attempt to build an export
@@ -222,11 +226,11 @@ Tried to export ~S.
                (if (or done (listen s))
                    (values)
                    (generate-exports))))
-      ;; Wrap the readtable to capture the input using an echo stream, so
+      ;; Wrap the readtable to capture the input using an echo stream.
       (setf wrapped-rt (wrap-readtable-macro-characters
                         *readtable*
                         (lambda (s c fn)
-                          ;; Echo input from the stream to the analyzer.
+                          ;; Echo each toplevel form to the analyzer.
                           (if (and *toplevel* (not done))
                               (let* ((capture (make-string-output-stream)))
                                 (write-char c capture)
