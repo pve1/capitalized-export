@@ -235,11 +235,17 @@ Tried to export ~S.
                               (let* ((capture (make-string-output-stream)))
                                 (write-char c capture)
                                 (with-open-stream (echo (make-echo-stream s capture))
-                                  ;; Do not need to consider (values) here.
-                                  (let ((form (handler-bind ((serious-condition #'error-handler))
-                                                (let ((*toplevel* nil))
-                                                  (funcall fn echo c)))))
-                                    (analyze-string analyzer (get-output-stream-string capture))
+                                  ;; Do not need to consider (values)
+                                  ;; here.  FINISH-OUTPUT seems to be
+                                  ;; necessary, otherwise SLIME gets
+                                  ;; confused when labeling compiler
+                                  ;; notes.
+                                  (let ((values (handler-bind ((serious-condition #'error-handler))
+                                                  (let ((*toplevel* nil))
+                                                    (prog1 (multiple-value-list (funcall fn echo c))
+                                                      (finish-output echo))))))
+                                    (unless done
+                                      (analyze-string analyzer (get-output-stream-string capture)))
                                     ;; Wrap in a progn if FN happened
                                     ;; to consume the last newline
                                     ;; (e.g. a ';' comment).  This
@@ -249,11 +255,13 @@ Tried to export ~S.
                                     ;; matter.
                                     (if (not (listen s))
                                         `(progn
-                                           ,form
+                                           ,@values
                                            ,(generate-exports))
-                                        form))))
+                                        (values-list values)))))
                               ;; If not done, error handler is active here.
-                              (funcall fn s c)))))
+                              (values-list
+                               (prog1 (multiple-value-list (funcall fn s c))
+                                 (finish-output s)))))))
       (set-macro-character #\Newline
                            #'newline-reader-macro-fn
                            nil
