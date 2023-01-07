@@ -205,7 +205,8 @@ Tried to export ~S.
 (defun make-capitalized-export-readtable ()
   (let ((analyzer (make-instance 'capitalized-export-analyzer))
         (done nil) ; We're done after encountering a newline followed by EOF.
-        wrapped-rt)
+        wrapped-rt
+        first-stream-encountered)
     (labels ((error-handler (c)
                ;; On any error, do not attempt to build an export
                ;; list.
@@ -226,13 +227,24 @@ Tried to export ~S.
                (if (or done (listen s))
                    (values)
                    (generate-exports))))
-      ;; Wrap the readtable to capture the input using an echo stream.
+      ;; Wrap the readtable to capture the input using an echo
+      ;; stream.
       (setf wrapped-rt (wrap-readtable-macro-characters
                         *readtable*
                         (lambda (s c fn)
-                          ;; Echo each toplevel form to the analyzer.
+                          ;; Echo each toplevel form to the
+                          ;; analyzer. If done is T, then do nothing
+                          ;; out of the ordinary, i.e. just call the
+                          ;; wrapped functions. Done becomes T when
+                          ;; the final newline is encountered.
                           (if (and *toplevel* (not done))
                               (let* ((capture (make-string-output-stream)))
+                                ;; Ensure that the stream hasn't suddenly
+                                ;; changed.
+                                (when (null first-stream-encountered)
+                                  (setf first-stream-encountered s))
+                                (when (not (eq s first-stream-encountered))
+                                  (error "CAPITALIZED-EXPORT: Stream has changed."))
                                 (write-char c capture)
                                 (with-open-stream (echo (make-echo-stream s capture))
                                   ;; FINISH-OUTPUT seems to be
