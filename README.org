@@ -4,6 +4,15 @@ This library provides a readtable that lets the user export accessible
 symbols by capitalizing them when loading or compiling files. Jump to
 definition, describe symbol etc. will still work normally in SLIME.
 
+So typing
+#+BEGIN_SRC lisp
+(defclass Person ()
+  ((%name :initarg :name :accessor Name :initform nil)
+   (%age :initarg :age :accessor Age :initform nil)))
+#+END_SRC
+will arrange for PERSON, NAME and AGE to be exported when the file
+(either source or fasl) is loaded.
+
 A fresh readtable is required for each file, so one might want to
 create a suitable convenience macro for setting the current
 readtable. The readtable should be set *after* the the package has
