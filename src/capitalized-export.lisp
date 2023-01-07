@@ -15,8 +15,31 @@
 ;; a           -> A
 ;; A           -> a
 
-;; Want to export "Foo", "F" and "*Foo*".
-(defun matches-export-pattern-p (string)
+;; Matches "Foo", "F", "Foo-Bar", "FoO-bAr" and "*Foo*".
+(defun matches-lax-export-pattern-p (string)
+  ;; STRING is the name of the symbol returned by the inverted
+  ;; readtable.
+  (or (and (= 1 (length string))
+           (lower-case-p (aref string 0))) ; User typed "A".
+      (and (< 1 (length string))
+           ;; Heuristic: First letter capitalized, string contains a lower
+           ;; case letter.
+           (loop :with state = :looking-for-upper-case
+                 :for c :across string
+                 :when (alpha-char-p c)
+                   :do (case state
+                         (:looking-for-upper-case
+                          (if (upper-case-p c)
+                              (setf state :looking-for-lower-case)
+                              (return nil)))
+                         (:looking-for-lower-case
+                          (when (lower-case-p c)
+                            (return t))))
+                 :finally (return nil)))))
+
+;; Matches "Foo", "F" and "*Foo*" (only allow the first letter to be
+;; capitalized).
+(defun matches-restricted-export-pattern-p (string)
   (or (and (= 1 (length string))
            (lower-case-p (aref string 0)))
       (and (< 1 (length string))
@@ -109,7 +132,7 @@ Tried to export ~S.
              (cond ((escaped-object-p object)
                     (escaped-object-value object))
                    ((and (symbolp object)
-                         (matches-export-pattern-p
+                         (matches-lax-export-pattern-p
                           (symbol-name object)))
                     (let ((upcased-symbol
                             (resolve-capitalized-symbol object)))
