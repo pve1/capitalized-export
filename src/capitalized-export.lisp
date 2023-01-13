@@ -237,7 +237,9 @@ Tried to export ~S.
                           ;; out of the ordinary, i.e. just call the
                           ;; wrapped functions. Done becomes T when
                           ;; the final newline is encountered.
-                          (if (and *toplevel* (not done))
+                          (if (and *toplevel*
+                                   (not done)
+                                   (eq s first-stream-encountered))
                               (let* ((capture (make-string-output-stream)))
                                 ;; Ensure that the stream hasn't suddenly
                                 ;; changed.
