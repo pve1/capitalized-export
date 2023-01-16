@@ -224,7 +224,9 @@ Tried to export ~S.
              (newline-reader-macro-fn (s c)
                (declare (ignore c))
                ;; Place exports last.
-               (if (or done (listen s))
+               (if (or done
+                       (not (eq first-stream-encountered s))
+                       (listen s))
                    (values)
                    (generate-exports))))
       ;; Wrap the readtable to capture the input using an echo
@@ -232,6 +234,8 @@ Tried to export ~S.
       (setf wrapped-rt (wrap-readtable-macro-characters
                         *readtable*
                         (lambda (s c fn)
+                          (when (null first-stream-encountered)
+                            (setf first-stream-encountered s))
                           ;; Echo each toplevel form to the
                           ;; analyzer. If done is T, then do nothing
                           ;; out of the ordinary, i.e. just call the
@@ -241,12 +245,6 @@ Tried to export ~S.
                                    (not done)
                                    (eq s first-stream-encountered))
                               (let* ((capture (make-string-output-stream)))
-                                ;; Ensure that the stream hasn't suddenly
-                                ;; changed.
-                                (when (null first-stream-encountered)
-                                  (setf first-stream-encountered s))
-                                (when (not (eq s first-stream-encountered))
-                                  (error "CAPITALIZED-EXPORT: Stream has changed."))
                                 (write-char c capture)
                                 (with-open-stream (echo (make-echo-stream s capture))
                                   ;; FINISH-OUTPUT seems to be
