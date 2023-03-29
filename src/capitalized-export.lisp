@@ -220,7 +220,8 @@ Tried to export ~S.
                (when *debug*
                  (format t "; Exported ~A.~%" (exports analyzer)))
                (setf done t)
-               `(export ',(exports analyzer)))
+               `(export ',(exports analyzer)
+                        ',(package-name (analyzer-package analyzer))))
              (newline-reader-macro-fn (s c)
                (declare (ignore c))
                ;; Place exports last.
