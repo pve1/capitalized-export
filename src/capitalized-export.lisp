@@ -202,8 +202,9 @@ Tried to export ~S.
 (defvar *toplevel* t)
 
 ;;; Replaces the final newline in a file with an (export ...) form.
-(defun make-capitalized-export-readtable ()
-  (let ((analyzer (make-instance 'capitalized-export-analyzer))
+(defun make-capitalized-export-readtable (&key (package *package*))
+  (let ((analyzer (make-instance 'capitalized-export-analyzer
+                                 :package package))
         (done nil) ; We're done after encountering a newline followed by EOF.
         wrapped-rt
         first-stream-encountered)
