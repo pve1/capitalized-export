@@ -15,10 +15,11 @@ will arrange for PERSON, NAME and AGE to be exported when the file
 
 A fresh readtable is required for each file, so one might want to
 create a suitable convenience macro for setting the current
-readtable. The readtable should be set *after* the the package has
-been set (e.g. with IN-PACKAGE).
+readtable. The default package from which symbols will be exported is
+the value of ~*package*~ at the time the readtable is created.
 
 * Example
+
 #+BEGIN_SRC lisp
 
 ;;;; File "capitalized-export-test.lisp"
@@ -53,5 +54,19 @@ been set (e.g. with IN-PACKAGE).
 ;; the bottom of the file:
 ;;
 ;; (EXPORT '(PERSON NAME AGE A *CIRCULAR*))
+#+END_SRC
 
+Note: SBCL likes to signal a warning when a defpackage form is
+evaluated and the symbols exported by the package don't match what's
+specified in the defpackage form ("WARNING: ... also exports the
+following symbols: ...").
+
+Therefore SBCL users may want to replace the top part of the above
+code with something like:
+
+#+BEGIN_SRC lisp
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (ignore-errors (make-package :capitalized-export-test :use '(:cl)))
+  (in-package :capitalized-export-test)
+  (setf *readtable* (capitalized-export:make-capitalized-export-readtable)))
 #+END_SRC
