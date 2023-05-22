@@ -203,6 +203,7 @@ Tried to export ~S.
 
 ;;; Replaces the final newline in a file with an (export ...) form.
 (defun make-capitalized-export-readtable (&key (package *package*))
+  (setf package (find-package package))
   (let ((analyzer (make-instance 'capitalized-export-analyzer
                                  :package package))
         (done nil) ; We're done after encountering a newline followed by EOF.
