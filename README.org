@@ -2,7 +2,8 @@
 
 This library provides a readtable that lets the user export accessible
 symbols by capitalizing them when loading or compiling files. Jump to
-definition, describe symbol etc. will still work normally in SLIME.
+definition, describe symbol etc. will still work normally in SLIME. It
+works by replacing the final newline in a file with an export form.
 
 So typing
 #+BEGIN_SRC lisp
