@@ -186,6 +186,7 @@ Tried to export ~S.
 (defmethod analyze-file ((a capitalized-export-analyzer) file)
   (analyze-string a (alexandria:read-file-into-string file)))
 
+#-ecl
 (defun wrap-readtable-macro-characters (readtable fn)
   (let ((rt (copy-readtable readtable)))
     (loop :for i :from 0 :to 255
@@ -194,10 +195,54 @@ Tried to export ~S.
                 (when reader-macro-fn
                   (set-macro-character (code-char i)
                                        (lambda (s c)
-                                         (funcall fn s c reader-macro-fn))
+                                         (funcall fn s c reader-macro-fn :null))
                                        nt
                                        rt))))
     rt))
+
+;; For ECL we handle dispatch macro characters explicitly.
+#+ecl
+(defun wrap-readtable-macro-characters (readtable fn)
+  (let ((rt (copy-readtable readtable))
+        (char-range 255))
+    (flet ((handle-dispatch-character (char)
+             (loop :for i :from 0 :to char-range
+                   :do (let* ((reader-macro-fn
+                                (get-dispatch-macro-character char
+                                                              (code-char i)
+                                                              readtable)))
+                         (when reader-macro-fn
+                           (set-dispatch-macro-character
+                            char
+                            (code-char i)
+                            (lambda (s c n)
+                              (funcall fn s c reader-macro-fn n))
+                            rt)))))
+           (handle-macro-character (char)
+             (multiple-value-bind (reader-macro-fn nt)
+                 (get-macro-character char readtable)
+               (when reader-macro-fn
+                 (set-macro-character char
+                                      (lambda (s c)
+                                        (funcall fn s c reader-macro-fn :null))
+                                      nt
+                                      rt))))
+           (dispatch-macro-character-p (char rt)
+             (and (get-macro-character char rt)
+                  (handler-case
+                      ;; If char is not a dispatch macro character, an
+                      ;; error should be signalled.
+                      (progn (get-dispatch-macro-character
+                              char #\a rt) ; can test any char
+                             t)
+                    (error (c) nil)))))
+      (loop :for i :from 0 :to char-range
+            :for char = (code-char i)
+            :do (cond ((dispatch-macro-character-p char rt)
+                       (handle-dispatch-character char))
+                      ((get-macro-character char rt)
+                       (handle-macro-character char))))
+      rt)))
 
 (defvar *toplevel* t)
 
@@ -236,7 +281,7 @@ Tried to export ~S.
       ;; stream.
       (setf wrapped-rt (wrap-readtable-macro-characters
                         *readtable*
-                        (lambda (s c fn)
+                        (lambda (s c fn dispatch-numeric-argument)
                           (when (null first-stream-encountered)
                             (setf first-stream-encountered s))
                           ;; Echo each toplevel form to the
@@ -256,7 +301,10 @@ Tried to export ~S.
                                   ;; notes.
                                   (let ((values (handler-bind ((serious-condition #'error-handler))
                                                   (let ((*toplevel* nil))
-                                                    (prog1 (multiple-value-list (funcall fn echo c))
+                                                    (prog1 (multiple-value-list
+                                                            (if (eq :null dispatch-numeric-argument)
+                                                                (funcall fn echo c) ; Not dispatch-macro-character
+                                                                (funcall fn echo c dispatch-numeric-argument)))
                                                       (finish-output echo))))))
                                     (unless done
                                       (analyze-string analyzer (get-output-stream-string capture)))
@@ -274,7 +322,10 @@ Tried to export ~S.
                                         (values-list values)))))
                               ;; If not done, error handler is active here.
                               (values-list
-                               (prog1 (multiple-value-list (funcall fn s c))
+                               (prog1 (multiple-value-list
+                                       (if (eq :null dispatch-numeric-argument)
+                                           (funcall fn s c) ; Not dispatch-macro-character
+                                           (funcall fn s c dispatch-numeric-argument)))
                                  (finish-output s)))))))
       (set-macro-character #\Newline
                            #'newline-reader-macro-fn
