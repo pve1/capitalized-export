@@ -1,6 +1,13 @@
 (defpackage :capitalized-export
   (:use :cl)
-  (:export "MAKE-CAPITALIZED-EXPORT-READTABLE"))
+  (:export #:default-scanner
+           #:generate-export-form
+           #:make-capitalized-export-readtable
+           #:scan-string
+           #:scanner-export-from-package
+           #:scanner-exports
+           #:scanner-read-into-package
+           #:scanner-readtable))
 
 (in-package :capitalized-export)
 
@@ -27,14 +34,14 @@
            (loop :with state = :looking-for-upper-case
                  :for c :across string
                  :when (alpha-char-p c)
-                   :do (case state
-                         (:looking-for-upper-case
-                          (if (upper-case-p c)
-                              (setf state :looking-for-lower-case)
-                              (return nil)))
-                         (:looking-for-lower-case
-                          (when (lower-case-p c)
-                            (return t))))
+                 :do (case state
+                       (:looking-for-upper-case
+                        (if (upper-case-p c)
+                            (setf state :looking-for-lower-case)
+                            (return nil)))
+                       (:looking-for-lower-case
+                        (when (lower-case-p c)
+                          (return t))))
                  :finally (return nil)))))
 
 ;; Matches "Foo", "F" and "*Foo*" (only allow the first letter to be
@@ -46,14 +53,14 @@
            (loop :with state = :looking-for-alpha-char
                  :for c :across string
                  :when (alpha-char-p c)
-                   :do (case state
-                         (:looking-for-alpha-char
-                          (if (upper-case-p c)
-                              (setf state :only-lower-case)
-                              (return nil)))
-                         (:only-lower-case
-                          (when (upper-case-p c)
-                            (return nil))))
+                 :do (case state
+                       (:looking-for-alpha-char
+                        (if (upper-case-p c)
+                            (setf state :only-lower-case)
+                            (return nil)))
+                       (:only-lower-case
+                        (when (upper-case-p c)
+                          (return nil))))
                  :finally (return (eq :only-lower-case state))))))
 
 ;;; This is used to escape |Foo| symbols.
@@ -135,21 +142,58 @@ Tried to export ~S.
                    ((and (symbolp object)
                          (matches-lax-export-pattern-p
                           (symbol-name object)))
-                    (let ((upcased-symbol
-                            (resolve-capitalized-symbol object)))
-                      (push upcased-symbol capitalized)
-                      upcased-symbol))
+                    (push object capitalized)
+                    object)
                    (t object)))))
     (setf new-tree (map-tree-leaves collect-capitalized form))
     (values capitalized
             new-tree)))
 
-(defclass capitalized-export-analyzer ()
-  ((exports :initarg :exports :accessor exports :initform nil)
-   (readtable :initarg :readtable
-              :accessor analyzer-readtable
+;;; Scanner functions.
+
+(defgeneric scan-string (scanner string)
+  (:documentation "Scan STRING for capitalized symbols."))
+
+(defgeneric scanner-exports (scanner)
+  (:documentation "The exports found by the scanner."))
+
+(defgeneric scanner-readtable (scanner)
+  (:documentation "The readtable used by the scanner."))
+
+(defgeneric scanner-export-from-package (scanner)
+  (:documentation
+   "The package from which the capitalized symbols should be exported."))
+
+(defgeneric scanner-read-into-package (scanner)
+  (:documentation
+   "The package in which SCANNER-STRING will perform reading."))
+
+(defgeneric generate-export-form (scanner)
+  (:documentation
+   "Generate the export form to be returned at the end of the file."))
+
+(defclass default-scanner ()
+  ((exports :accessor scanner-exports
+            :initform nil)
+   (readtable :accessor scanner-readtable
               :initform (make-inverted-readtable))
-   (package :initarg :package :accessor analyzer-package :initform *package*)))
+   (package-export :initarg :export-from-package
+                   :accessor scanner-export-from-package
+                   :initform nil)
+   (package-read :initarg :read-into-package
+                 :accessor scanner-read-into-package
+                 :initform nil)))
+
+;; :PACKAGE can be used to set both read and export packages.
+(defmethod initialize-instance :after ((scanner default-scanner)
+                                       &key package)
+  (with-accessors ((read-into-package scanner-read-into-package)
+                   (export-from-package scanner-export-from-package))
+      scanner
+    (when (and package (not read-into-package))
+      (setf read-into-package package))
+    (when (and package (not export-from-package))
+      (setf export-from-package package))))
 
 (defun chomp (string)
   (if (eql #\Newline (alexandria:last-elt string))
@@ -166,25 +210,49 @@ Tried to export ~S.
     (read-all-from-stream string-stream)))
 
 ;;; Collect (append) capitalized symbols found in string. Access them
-;;; using the accessor EXPORTS.
-(defmethod analyze-string ((a capitalized-export-analyzer) string)
+;;; using the accessor SCANNER-EXPORTS.
+(defmethod scan-string ((c default-scanner) string)
   (when *debug*
     (format t "; Analyzing string ~S~%" (chomp string)))
-  (with-accessors ((exports exports)
-                   (package analyzer-package)) a
-    (let* ((*readtable* (analyzer-readtable a))
-           (*package* package)
+  (with-accessors ((exports scanner-exports)
+                   (read-package scanner-read-into-package)) c
+    (let* ((*readtable* (scanner-readtable c))
+           (*package* read-package)
            (forms (read-all-from-string string))
            (capitalized nil))
       (dolist (form forms)
-        (setf capitalized (append (collect-capitalized-symbols form)
-                                  capitalized)))
+        (let ((form-capitalized-symbols
+                (collect-capitalized-symbols form)))
+          (setf capitalized (append form-capitalized-symbols
+                                    capitalized))))
       (when (and *debug* capitalized)
-        (format t "; Found ~A capitalized symbols.~%" (length capitalized)))
-      (setf exports (append capitalized exports)))))
+        (let ((len (length capitalized)))
+          (format t "; Found ~A capitalized ~a.~%"
+                  len
+                  (if (= 1 len)
+                      "symbol"
+                      "symbols"))))
+      (setf capitalized (mapcar #'resolve-capitalized-symbol capitalized)
+            exports (append capitalized exports)))))
 
-(defmethod analyze-file ((a capitalized-export-analyzer) file)
-  (analyze-string a (alexandria:read-file-into-string file)))
+;;; Import first, in case the export package for some reason
+;;; doesn't contain the symbols (for instance, if creating "api
+;;; packages"). This may happen if the export-from-package is
+;;; different from the read-into-package.
+;;;
+;;; If we didn't care about that we could simply do:
+;;;
+;;; `(export ',(scanner-exports scanner)
+;;;          ',(package-name (scanner-export-from-package scanner))))
+;;;
+(defmethod generate-export-form ((scanner default-scanner))
+  `(let ((exports ',(scanner-exports scanner))
+         (export-package
+           ',(package-name (scanner-export-from-package scanner))))
+     (import exports export-package)
+     (export exports export-package)))
+
+;;; Creating the readtable.
 
 #-ecl
 (defun wrap-readtable-macro-characters (readtable fn)
@@ -247,11 +315,18 @@ Tried to export ~S.
 (defvar *toplevel* t)
 
 ;;; Replaces the final newline in a file with an (export ...) form.
-(defun make-capitalized-export-readtable (&key (package *package*))
+(defun make-capitalized-export-readtable (&key (package *package*)
+                                               scanner)
+  "Creates a readtable that will arrange for an export form to be
+generated at the end of a stream, if the stream ends in a newline.  If
+SCANNER is nil, then the default scanner will be used.  The default
+scanner will export all capitalized symbols encountered while reading
+the stream from the package PACKAGE."
   (setf package (find-package package))
-  (let ((analyzer (make-instance 'capitalized-export-analyzer
-                                 :package package))
-        (done nil) ; We're done after encountering a newline followed by EOF.
+  (unless scanner
+    (setf scanner (make-instance 'default-scanner
+                    :package package)))
+  (let ((done nil) ; We're done after encountering a newline followed by EOF.
         wrapped-rt
         first-stream-encountered)
     (labels ((error-handler (c)
@@ -265,10 +340,9 @@ Tried to export ~S.
                ;; capitalized symbols.
                (assert *toplevel*)
                (when *debug*
-                 (format t "; Exported ~A.~%" (exports analyzer)))
+                 (format t "; Exported ~A.~%" (scanner-exports scanner)))
                (setf done t)
-               `(export ',(exports analyzer)
-                        ',(package-name (analyzer-package analyzer))))
+               (generate-export-form scanner))
              (newline-reader-macro-fn (s c)
                (declare (ignore c))
                ;; Place exports last.
@@ -285,7 +359,7 @@ Tried to export ~S.
                           (when (null first-stream-encountered)
                             (setf first-stream-encountered s))
                           ;; Echo each toplevel form to the
-                          ;; analyzer. If done is T, then do nothing
+                          ;; scanner. If done is T, then do nothing
                           ;; out of the ordinary, i.e. just call the
                           ;; wrapped functions. Done becomes T when
                           ;; the final newline is encountered.
@@ -307,7 +381,7 @@ Tried to export ~S.
                                                                 (funcall fn echo c dispatch-numeric-argument)))
                                                       (finish-output echo))))))
                                     (unless done
-                                      (analyze-string analyzer (get-output-stream-string capture)))
+                                      (scan-string scanner (get-output-stream-string capture)))
                                     ;; Wrap in a progn if FN happened
                                     ;; to consume the last newline
                                     ;; (e.g. a ';' comment).  This
