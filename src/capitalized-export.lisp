@@ -1,5 +1,5 @@
-(defpackage :capitalized-export
-  (:use :cl)
+(defpackage #:capitalized-export
+  (:use #:cl)
   (:export #:default-scanner
            #:generate-export-form
            #:make-capitalized-export-readtable
@@ -9,28 +9,28 @@
            #:scanner-read-into-package
            #:scanner-readtable))
 
-(in-package :capitalized-export)
+(in-package #:capitalized-export)
 
 (defvar *debug* nil)
 
-;; readtable-case :invert
-;;
-;; User types     Symbol
-;; Zebra       -> Zebra
-;; ZEBRA       -> zebra
-;; zebra       -> ZEBRA
-;; a           -> A
-;; A           -> a
+;;; readtable-case :invert
+;;;
+;;; User types     Symbol
+;;; Zebra       -> Zebra
+;;; ZEBRA       -> zebra
+;;; zebra       -> ZEBRA
+;;; a           -> A
+;;; A           -> a
 
-;; Matches "Foo", "F", "Foo-Bar", "FoO-bAr" and "*Foo*".
+;;; Matches "Foo", "F", "Foo-Bar", "FoO-bAr" and "*Foo*".
 (defun matches-lax-export-pattern-p (string)
   ;; STRING is the name of the symbol returned by the inverted
   ;; readtable.
   (or (and (= 1 (length string))
            (lower-case-p (aref string 0))) ; User typed "A".
       (and (< 1 (length string))
-           ;; Heuristic: First letter capitalized, string contains a lower
-           ;; case letter.
+           ;; Heuristic: First letter upper case, string contains a
+           ;; lower case letter.
            (loop :with state = :looking-for-upper-case
                  :for c :across string
                  :when (alpha-char-p c)
@@ -44,24 +44,26 @@
                           (return t))))
                  :finally (return nil)))))
 
-;; Matches "Foo", "F" and "*Foo*" (only allow the first letter to be
-;; capitalized).
-(defun matches-restricted-export-pattern-p (string)
-  (or (and (= 1 (length string))
-           (lower-case-p (aref string 0)))
-      (and (< 1 (length string))
-           (loop :with state = :looking-for-alpha-char
-                 :for c :across string
-                 :when (alpha-char-p c)
-                 :do (case state
-                       (:looking-for-alpha-char
-                        (if (upper-case-p c)
-                            (setf state :only-lower-case)
-                            (return nil)))
-                       (:only-lower-case
-                        (when (upper-case-p c)
-                          (return nil))))
-                 :finally (return (eq :only-lower-case state))))))
+;;; A stricter pattern might look like this:
+;;;
+;;; Matches "Foo", "F" and "*Foo*", but not "FooBar" (only allow the
+;;; first letter to be upper case).
+#| (defun matches-restricted-export-pattern-p (string)
+      (or (and (= 1 (length string))
+               (lower-case-p (aref string 0)))
+          (and (< 1 (length string))
+               (loop :with state = :looking-for-alpha-char
+                     :for c :across string
+                     :when (alpha-char-p c)
+                     :do (case state
+                           (:looking-for-alpha-char
+                            (if (upper-case-p c)
+                                (setf state :only-lower-case)
+                                (return nil)))
+                           (:only-lower-case
+                            (when (upper-case-p c)
+                              (return nil))))
+                     :finally (return (eq :only-lower-case state)))))) |#
 
 ;;; This is used to escape |Foo| symbols.
 (defun escape-object (x)
@@ -132,6 +134,20 @@ Tried to export ~S.
 "  symbol))
   (intern (string-upcase symbol) *package*))
 
+(defun chomp (string)
+  (if (eql #\Newline (alexandria:last-elt string))
+      (subseq string 0 (1- (length string)))
+      string))
+
+(defun read-all-from-stream (stream)
+  (loop :for form = (read stream nil stream nil)
+        :until (eq form stream)
+        :collect form))
+
+(defun read-all-from-string (string)
+  (with-input-from-string (string-stream string)
+    (read-all-from-stream string-stream)))
+
 (defun collect-capitalized-symbols (form)
   (let* (new-tree
          (capitalized ())
@@ -184,7 +200,7 @@ Tried to export ~S.
                  :accessor scanner-read-into-package
                  :initform nil)))
 
-;; :PACKAGE can be used to set both read and export packages.
+;;; :PACKAGE can be used to set both read and export packages.
 (defmethod initialize-instance :after ((scanner default-scanner)
                                        &key package)
   (with-accessors ((read-into-package scanner-read-into-package)
@@ -194,20 +210,6 @@ Tried to export ~S.
       (setf read-into-package package))
     (when (and package (not export-from-package))
       (setf export-from-package package))))
-
-(defun chomp (string)
-  (if (eql #\Newline (alexandria:last-elt string))
-      (subseq string 0 (1- (length string)))
-      string))
-
-(defun read-all-from-stream (stream)
-  (loop :for form = (read stream nil stream nil)
-        :until (eq form stream)
-        :collect form))
-
-(defun read-all-from-string (string)
-  (with-input-from-string (string-stream string)
-    (read-all-from-stream string-stream)))
 
 ;;; Collect (append) capitalized symbols found in string. Access them
 ;;; using the accessor SCANNER-EXPORTS.
@@ -244,7 +246,7 @@ Tried to export ~S.
 ;;;
 ;;; `(export ',(scanner-exports scanner)
 ;;;          ',(package-name (scanner-export-from-package scanner))))
-;;;
+
 (defmethod generate-export-form ((scanner default-scanner))
   `(let ((exports ',(scanner-exports scanner))
          (export-package
